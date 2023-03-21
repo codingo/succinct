@@ -55,6 +55,19 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	type result struct {
+		url     string
+		summary string
+	}
+
+	results := make(chan result)
+
+	go func() {
+		for res := range results {
+			fmt.Printf("\nSummary for %s:\n%s\n", res.url, res.summary)
+		}
+	}()
+
 	for _, url := range urls {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -74,7 +87,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				log.Printf("Error summarizing content for %s: %v", url, err)
 				return
 			}
-			fmt.Printf("\nSummary for %s:\n%s\n", url, summary)
+			results <- result{url: url, summary: summary}
 		}(url)
 	}
 
@@ -82,6 +95,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 		sem <- struct{}{}
 	}
 	wg.Wait()
+	close(results) // Close the results channel after all goroutines are done
 }
 
 // loadExcludedWords reads the excluded words file and returns a map of excluded words
@@ -137,10 +151,11 @@ func formatURL(url string) (string, error) {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = "https://" + url
 	}
-	_, err := http.Get(url)
+	resp, err := http.Head(url)
 	if err != nil {
 		return "", err
 	}
+	resp.Body.Close()
 	return url, nil
 }
 
@@ -187,13 +202,5 @@ func summarizeContent(bag *tldr.Bag, content string, summarySentences int) (stri
 		return "", err
 	}
 
-	var summaryBuilder strings.Builder
-	for i, sentence := range summary {
-		summaryBuilder.WriteString(sentence)
-		if i < len(summary)-1 {
-			summaryBuilder.WriteString(" ")
-		}
-	}
-
-	return summaryBuilder.String(), nil
+	return strings.Join(summary, " "), nil
 }
