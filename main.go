@@ -211,8 +211,26 @@ func fetchContent(ctx context.Context, url string) (string, error) {
 		return "", err
 	}
 
+	// Find the body tag in the HTML document
+	var body *html.Node
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "body" {
+			body = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(doc)
+
+	if body == nil {
+		return "", errors.New("body tag not found")
+	}
+
 	// Extract the text content from the HTML body
-	content := extractTextNodes(doc)
+	content := extractTextNodes(body)
 
 	return content, nil
 }
