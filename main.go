@@ -53,8 +53,6 @@ func main() {
 func processURLs(urls []string, excludedWords map[string]bool, threads, number, summarySentences int) {
 	var sem = make(chan struct{}, threads)
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	type result struct {
 		url          string
@@ -82,6 +80,10 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				<-sem
 				wg.Done()
 			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
 			bag := tldr.New()
 			content, err := fetchContent(ctx, url)
 			if err != nil {
