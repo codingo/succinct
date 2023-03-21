@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -56,14 +57,19 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 	defer cancel()
 
 	type result struct {
-		url     string
-		summary string
+		url          string
+		mostUsedWords []WordFrequency
+		summary       string
 	}
 
 	results := make(chan result)
 
 	go func() {
 		for res := range results {
+			fmt.Printf("\nMost used words for %s:\n", res.url)
+			for _, wf := range res.mostUsedWords {
+				fmt.Printf("%s: %d\n", wf.word, wf.count)
+			}
 			fmt.Printf("\nSummary for %s:\n%s\n", res.url, res.summary)
 		}
 	}()
@@ -87,7 +93,8 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				log.Printf("Error summarizing content for %s: %v", url, err)
 				return
 			}
-			results <- result{url: url, summary: summary}
+			wordFrequency := getMostUsedWords(content, excludedWords, number)
+			results <- result{url: url, mostUsedWords: wordFrequency, summary: summary}
 		}(url)
 	}
 
@@ -203,4 +210,33 @@ func summarizeContent(bag *tldr.Bag, content string, summarySentences int) (stri
 	}
 
 	return strings.Join(summary, " "), nil
+}
+
+// getMostUsedWords calculates the most used words in the content and returns a slice of WordFrequency
+func getMostUsedWords(content string, excludedWords map[string]bool, number int) []WordFrequency {
+	words := strings.Fields(content)
+	wordCounts := make(map[string]int)
+
+	for _, word := range words {
+		word = strings.ToLower(word)
+		if !excludedWords[word] {
+			wordCounts[word]++
+		}
+	}
+
+	wordFrequency := make([]WordFrequency, 0, len(wordCounts))
+
+	for word, count := range wordCounts {
+		wordFrequency = append(wordFrequency, WordFrequency{word: word, count: count})
+	}
+
+	sort.Slice(wordFrequency, func(i, j int) bool {
+		return wordFrequency[i].count > wordFrequency[j].count
+	})
+
+	if len(wordFrequency) > number {
+		wordFrequency = wordFrequency[:number]
+	}
+
+	return wordFrequency
 }
