@@ -178,14 +178,14 @@ func formatURL(url string) (string, error) {
 // extractTextNodes extracts the text nodes from an HTML node and returns the concatenated text content
 func extractTextNodes(n *html.Node) string {
 	if n.Type == html.TextNode {
-		return n.Data
+		return strings.TrimSpace(n.Data)
 	}
 	if n.Type != html.ElementNode {
 		return ""
 	}
 	var text string
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		text += extractTextNodes(c)
+		text += " " + extractTextNodes(c)
 	}
 	return text
 }
