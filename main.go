@@ -17,6 +17,7 @@ import (
 
 	"github.com/JesusIslam/tldr"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/olekukonko/html2text"
 )
 
 type WordFrequency struct {
@@ -179,34 +180,38 @@ func formatURL(url string) (string, error) {
 
 // fetchContent fetches the content of the given URL and returns it as a string
 func fetchContent(ctx context.Context, url string) (string, error) {
-	formattedURL, err := formatURL(url)
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, formattedURL, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
+    formattedURL, err := formatURL(url)
+    if err != nil {
+        return "", err
+    }
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, formattedURL, nil)
+    if err != nil {
+        return "", err
+    }
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
+    doc, err := goquery.NewDocumentFromReader(resp.Body)
+    if err != nil {
+        return "", err
+    }
 
-	var contentBuilder strings.Builder
-	doc.Find("body").Find("*").Each(func(_ int, s *goquery.Selection) {
-		if s.Children().Length() == 0 {
-			contentBuilder.WriteString(s.Text())
-			contentBuilder.WriteString(" ")
-		}
-	})
+    // Extract the HTML content of the body
+    bodyHTML, err := doc.Find("body").Html()
+    if err != nil {
+        return "", err
+    }
 
-	return contentBuilder.String(), nil
+    // Convert the HTML content to clean text using html2text
+    content, err := html2text.FromString(bodyHTML, html2text.Options{PrettyTables: true})
+    if err != nil {
+        return "", err
+    }
+
+    return content, nil
 }
 
 // removeHTMLTags removes HTML tags and inline JavaScript code from the content
