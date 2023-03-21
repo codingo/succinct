@@ -50,33 +50,20 @@ func main() {
 }
 
 func processURLs(urls []string, excludedWords map[string]bool, threads, number, summarySentences int) {
-	urlsChan := make(chan string)
-	go func() {
-		for _, url := range urls {
-			urlsChan <- url
-		}
-		close(urlsChan)
-	}()
+	// ... (unchanged code)
 
-	var wg sync.WaitGroup
 	for i := 0; i < threads; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for url := range urlsChan {
-				wordList, err := extractWords(url)
+				// ... (unchanged code)
+
+				content, err := fetchContent(url)
 				if err != nil {
-					log.Printf("Error extracting words for %s: %v", url, err)
+					log.Printf("Error fetching content for %s: %v", url, err)
 					continue
 				}
-
-				wordMap := countWords(wordList, excludedWords)
-				frequencies := createFrequencies(wordMap)
-
-				fmt.Printf("\nResults for %s:\n", url)
-				printFrequencies(frequencies, number)
-
-				content := fetchContent(url)
 				summary, err := summarizeContent(content, summarySentences)
 				if err != nil {
 					log.Printf("Error summarizing content for %s: %v", url, err)
@@ -199,17 +186,25 @@ func extractWords(url string) ([]string, error) {
 	return words, nil
 }
 
-func fetchContent(url string) string {
+func fetchContent(url string) (string, error) {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = "https://" + url
 	}
 
 	doc, err := goquery.NewDocument(url)
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
-	content := doc.Find("body").Text()
-	return content
+
+	var contentBuilder strings.Builder
+	doc.Find("body").Find("*").Each(func(_ int, s *goquery.Selection) {
+		if s.Children().Length() == 0 {
+			contentBuilder.WriteString(s.Text())
+			contentBuilder.WriteString(" ")
+		}
+	})
+
+	return contentBuilder.String(), nil
 }
 
 func summarizeContent(content string, summarySentences int) (string, error) {
