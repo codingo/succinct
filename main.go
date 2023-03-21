@@ -200,6 +200,10 @@ func extractWords(url string) ([]string, error) {
 }
 
 func fetchContent(url string) string {
+    if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+
 	doc, err := goquery.NewDocument(url)
 	if err != nil {
 		log.Fatal(err)
