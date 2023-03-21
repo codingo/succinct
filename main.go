@@ -1,5 +1,8 @@
+package main
+
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/JesusIslam/tldr"
 	"github.com/PuerkitoBio/goquery"
@@ -47,9 +51,12 @@ func main() {
 	processURLs(urls, excludedWords, *threads, *number, *summarySentences)
 }
 
+// processURLs manages the concurrent processing of URLs
 func processURLs(urls []string, excludedWords map[string]bool, threads, number, summarySentences int) {
 	var sem = make(chan struct{}, threads)
 	var wg sync.WaitGroup
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	for _, url := range urls {
 		wg.Add(1)
@@ -60,7 +67,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				wg.Done()
 			}()
 			bag := tldr.New()
-			content, err := fetchContent(url)
+			content, err := fetchContent(ctx, url)
 			if err != nil {
 				log.Printf("Error fetching content for %s: %v", url, err)
 				return
@@ -80,6 +87,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 	wg.Wait()
 }
 
+// loadExcludedWords reads the excluded words file and returns a map of excluded words
 func loadExcludedWords(filename string) (map[string]bool, error) {
 	excludedWords := make(map[string]bool)
 
@@ -105,6 +113,7 @@ func loadExcludedWords(filename string) (map[string]bool, error) {
 	return excludedWords, nil
 }
 
+// loadURLs reads the URLs file and returns a slice of URLs
 func loadURLs(filename string) ([]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -126,6 +135,51 @@ func loadURLs(filename string) ([]string, error) {
 	return urls, nil
 }
 
+// formatURL validates and formats the URL with the correct protocol
+func formatURL(url string) (string, error) {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+	_, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	return url, nil
+}
+
+// fetchContent fetches the content of the given URL and returns it as a string
+func fetchContent(ctx context.Context, url string) (string, error) {
+	formattedURL, err := formatURL(url)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, formattedURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var contentBuilder strings.Builder
+	doc.Find("body").Find("*").Each(func(_ int, s *goquery.Selection) {
+		if s.Children().Length() == 0 {
+			contentBuilder.WriteString(s.Text())
+			contentBuilder.WriteString(" ")
+		}
+	})
+
+	return contentBuilder.String(), nil
+}
+
+// summarizeContent generates a summary of the content using the tldr.Bag package
 func summarizeContent(bag *tldr.Bag, content string, summarySentences int) (string, error) {
 	if summarySentences < 1 {
 		return "", errors.New("summarySentences should be greater than or equal to 1")
@@ -145,25 +199,4 @@ func summarizeContent(bag *tldr.Bag, content string, summarySentences int) (stri
 	}
 
 	return summaryBuilder.String(), nil
-}
-
-func fetchContent(url string) (string, error) {
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = "https://" + url
-	}
-
-	doc, err := goquery.NewDocument(url)
-	if err != nil {
-		return "", err
-	}
-
-	var contentBuilder strings.Builder
-	doc.Find("body").Find("*").Each(func(_ int, s *goquery.Selection) {
-		if s.Children().Length() == 0 {
-			contentBuilder.WriteString(s.Text())
-			contentBuilder.WriteString(" ")
-		}
-	})
-
-	return contentBuilder.String(), nil
 }
