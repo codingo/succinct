@@ -50,7 +50,15 @@ func main() {
 }
 
 func processURLs(urls []string, excludedWords map[string]bool, threads, number, summarySentences int) {
-	// ... (unchanged code)
+	urlsChan := make(chan string)
+	go func() {
+		for _, url := range urls {
+			urlsChan <- url
+		}
+		close(urlsChan)
+	}()
+
+	var wg sync.WaitGroup
 
 	for i := 0; i < threads; i++ {
 		wg.Add(1)
