@@ -1,5 +1,3 @@
-package main
-
 import (
 	"bufio"
 	"errors"
@@ -50,38 +48,35 @@ func main() {
 }
 
 func processURLs(urls []string, excludedWords map[string]bool, threads, number, summarySentences int) {
-	urlsChan := make(chan string)
-	go func() {
-		for _, url := range urls {
-			urlsChan <- url
-		}
-		close(urlsChan)
-	}()
-
+	var sem = make(chan struct{}, threads)
 	var wg sync.WaitGroup
 
-	for i := 0; i < threads; i++ {
+	for _, url := range urls {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for url := range urlsChan {
-				// ... (unchanged code)
-
-				content, err := fetchContent(url)
-				if err != nil {
-					log.Printf("Error fetching content for %s: %v", url, err)
-					continue
-				}
-				summary, err := summarizeContent(content, summarySentences)
-				if err != nil {
-					log.Printf("Error summarizing content for %s: %v", url, err)
-					continue
-				}
-				fmt.Printf("\nSummary for %s:\n%s\n", url, summary)
+		sem <- struct{}{}
+		go func(url string) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			bag := tldr.New()
+			content, err := fetchContent(url)
+			if err != nil {
+				log.Printf("Error fetching content for %s: %v", url, err)
+				return
 			}
-		}()
+			summary, err := summarizeContent(bag, content, summarySentences)
+			if err != nil {
+				log.Printf("Error summarizing content for %s: %v", url, err)
+				return
+			}
+			fmt.Printf("\nSummary for %s:\n%s\n", url, summary)
+		}(url)
 	}
 
+	for i := 0; i < cap(sem); i++ {
+		sem <- struct{}{}
+	}
 	wg.Wait()
 }
 
@@ -103,6 +98,10 @@ func loadExcludedWords(filename string) (map[string]bool, error) {
 		excludedWords[strings.ToLower(scanner.Text())] = true
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	return excludedWords, nil
 }
 
@@ -120,78 +119,32 @@ func loadURLs(filename string) ([]string, error) {
 		urls = append(urls, url)
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	return urls, nil
 }
 
-func countWords(wordList []string, excludedWords map[string]bool) map[string]int {
-	wordMap := make(map[string]int)
-	for _, word := range wordList {
-		word = strings.ToLower(word)
-		if !excludedWords[word] {
-			wordMap[word]++
+func summarizeContent(bag *tldr.Bag, content string, summarySentences int) (string, error) {
+	if summarySentences < 1 {
+		return "", errors.New("summarySentences should be greater than or equal to 1")
+	}
+
+	summary, err := bag.Summarize(content, summarySentences)
+	if err != nil {
+		return "", err
+	}
+
+	var summaryBuilder strings.Builder
+	for i, sentence := range summary {
+		summaryBuilder.WriteString(sentence)
+		if i < len(summary)-1 {
+			summaryBuilder.WriteString(" ")
 		}
 	}
 
-	return wordMap
-}
-
-func createFrequencies(wordMap map[string]int) []WordFrequency {
-	frequencies := []WordFrequency{}
-
-	for word, count := range wordMap {
-		frequencies = append(frequencies, WordFrequency{word, count})
-	}
-
-	sort.Slice(frequencies, func(i, j int) bool {
-		return frequencies[i].count > frequencies[j].count
-	})
-
-	return frequencies
-}
-
-func printFrequencies(frequencies []WordFrequency, number int) {
-	count := 0
-	for i := 0; count < number && i < len(frequencies); i++ {
-		word := strings.TrimSpace(frequencies[i].word)
-		if word == "" {
-			continue
-		}
-
-		fmt.Printf("%s:%d\n", word, frequencies[i].count)
-		count++
-	}
-}
-
-func extractWords(url string) ([]string, error) {
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = "https://" + url
-	}
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
-	if err != nil {
-		return nil, err
-	}
-
-	words := []string{}
-	wordRegex := regexp.MustCompile(`\w+`)
-	doc.Find("body").Each(func(_ int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
-		matches := wordRegex.FindAllString(text, -1)
-		words = append(words, matches...)
-	})
-
-	return words, nil
+	return summaryBuilder.String(), nil
 }
 
 func fetchContent(url string) (string, error) {
@@ -213,17 +166,4 @@ func fetchContent(url string) (string, error) {
 	})
 
 	return contentBuilder.String(), nil
-}
-
-func summarizeContent(content string, summarySentences int) (string, error) {
-	if summarySentences < 1 {
-		return "", errors.New("summarySentences should be greater than or equal to 1")
-	}
-
-	bag := tldr.New()
-	summary, err := bag.Summarize(content, summarySentences)
-	if err != nil {
-		return "", err
-	}
-	return strings.Join(summary, " "), nil
 }
