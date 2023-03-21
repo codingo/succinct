@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -90,6 +91,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				log.Printf("Error fetching content for %s: %v", url, err)
 				return
 			}
+			content = removeHTMLTags(content)
 			summary, err := summarizeContent(bag, content, summarySentences)
 			if err != nil {
 				log.Printf("Error summarizing content for %s: %v", url, err)
@@ -205,6 +207,19 @@ func fetchContent(ctx context.Context, url string) (string, error) {
 	})
 
 	return contentBuilder.String(), nil
+}
+
+// removeHTMLTags removes HTML tags and inline JavaScript code from the content
+func removeHTMLTags(content string) string {
+	// Remove HTML tags
+	re := regexp.MustCompile(`<[^>]*>`)
+	content = re.ReplaceAllString(content, "")
+
+	// Remove inline JavaScript code
+	re = regexp.MustCompile(`(?s)<script.*>.*</script>`)
+	content = re.ReplaceAllString(content, "")
+
+	return content
 }
 
 // summarizeContent generates a summary of the content using the tldr.Bag package
