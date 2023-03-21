@@ -66,7 +66,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 			for url := range urlsChan {
 				wordList, err := extractWords(url)
 				if err != nil {
-					log.Printf("Error extracting words: %v", err)
+					log.Printf("Error extracting words for %s: %v", url, err)
 					continue
 				}
 
@@ -79,7 +79,7 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				content := fetchContent(url)
 				summary, err := summarizeContent(content, summarySentences)
 				if err != nil {
-					log.Printf("Error summarizing content: %v", err)
+					log.Printf("Error summarizing content for %s: %v", url, err)
 					continue
 				}
 				fmt.Printf("\nSummary for %s:\n%s\n", url, summary)
@@ -200,7 +200,7 @@ func extractWords(url string) ([]string, error) {
 }
 
 func fetchContent(url string) string {
-    if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = "https://" + url
 	}
 
