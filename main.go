@@ -6,18 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"golang.org/x/net/html"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/JesusIslam/tldr"
-	"github.com/PuerkitoBio/goquery"
-	"github.com/olekukonko/html2text"
 )
 
 type WordFrequency struct {
@@ -92,7 +90,6 @@ func processURLs(urls []string, excludedWords map[string]bool, threads, number, 
 				log.Printf("Error fetching content for %s: %v", url, err)
 				return
 			}
-			content = removeHTMLTags(content)
 			summary, err := summarizeContent(bag, content, summarySentences)
 			if err != nil {
 				log.Printf("Error summarizing content for %s: %v", url, err)
@@ -178,53 +175,46 @@ func formatURL(url string) (string, error) {
 	return url, nil
 }
 
-// fetchContent fetches the content of the given URL and returns it as a string
-func fetchContent(ctx context.Context, url string) (string, error) {
-    formattedURL, err := formatURL(url)
-    if err != nil {
-        return "", err
-    }
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, formattedURL, nil)
-    if err != nil {
-        return "", err
-    }
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
-
-    doc, err := goquery.NewDocumentFromReader(resp.Body)
-    if err != nil {
-        return "", err
-    }
-
-    // Extract the HTML content of the body
-    bodyHTML, err := doc.Find("body").Html()
-    if err != nil {
-        return "", err
-    }
-
-    // Convert the HTML content to clean text using html2text
-    content, err := html2text.FromString(bodyHTML, html2text.Options{PrettyTables: true})
-    if err != nil {
-        return "", err
-    }
-
-    return content, nil
+// extractTextNodes extracts the text nodes from an HTML node and returns the concatenated text content
+func extractTextNodes(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	if n.Type != html.ElementNode {
+		return ""
+	}
+	var text string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text += extractTextNodes(c)
+	}
+	return text
 }
 
-// removeHTMLTags removes HTML tags and inline JavaScript code from the content
-func removeHTMLTags(content string) string {
-	// Remove HTML tags
-	re := regexp.MustCompile(`<[^>]*>`)
-	content = re.ReplaceAllString(content, "")
+// fetchContent fetches the content of the given URL and returns it as a string
+func fetchContent(ctx context.Context, url string) (string, error) {
+	formattedURL, err := formatURL(url)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, formattedURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
-	// Remove inline JavaScript code
-	re = regexp.MustCompile(`(?s)<script.*>.*</script>`)
-	content = re.ReplaceAllString(content, "")
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return "", err
+	}
 
-	return content
+	// Extract the text content from the HTML body
+	content := extractTextNodes(doc)
+
+	return content, nil
 }
 
 // summarizeContent generates a summary of the content using the tldr.Bag package
